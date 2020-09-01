@@ -37,7 +37,18 @@ https://www.paddypower.com/football/uefa-euro-2020?tab=outrights
 https://www.betfair.com/exchange/plus/en/football/uefa-euro-2020-betting-28814228
 <h3 class="runner-name" data-ng-bind="::runnerName">Spain</h3>
 Example ("Lay all" column):
-<button class="lay mv-bet-button lay-button lay-selection-button" data-bet-type="lay" data-ng-class="::{'is-sp': isSp}" type="lay" depth="0" price="9.4" size="£86" to-fraction="ctrl.vm.events.getBetButtonFractionalOdd(lay)" highlight="false" ng-click="ctrl.vm.events.addBet(ctrl.vm.data.betsConfiguration.types.lay, lay.price, runner)" ng-disabled="ctrl.vm.data.market.isSuspended" is-selected="false" title="17/2"><!----><!----><div class="mv-bet-button-info" data-ng-if="::!isSp"><span class="bet-button-price">9.4</span> <span class="bet-button-size">£86</span></div><!----></button>
+<button class="lay mv-bet-button lay-button lay-selection-button" 
+  data-bet-type="lay" data-ng-class="::{'is-sp': isSp}"
+  type="lay" depth="0" price="9.4" size="£86" ...
+  title="17/2">
+	<!---->
+	<!---->
+	<div class="mv-bet-button-info" data-ng-if="::!isSp">
+		<span class="bet-button-price">9.4</span>
+		<span class="bet-button-size">£86</span>
+	</div>
+	<!---->
+</button>
 ```
 
 ### find_class_by_sample
