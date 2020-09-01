@@ -23,6 +23,12 @@ List of web pages to extract odds from are as follows:
 ### Q2: Which column to take on betfair.com
 Is it one specific column, or some sort of aggregation of all/some columns?
 
+### Q3: start URL
+"Preferably use text processing/analysis to navigate to correct match link from home URL instead of hardcoding the start URL"
+
+### Q4: Team names as parameters
+"Team names can also be used as parameter to locate correct odds elements on page"
+
 ## Methods
 ### find_by_html_class
 Specify the exact HTML id/class name for each site.
