@@ -29,18 +29,16 @@ Specify the exact HTML id/class name for each site.
 
 Inspected HTML elements:
 
-<code>
+```
 https://www.paddypower.com/football/uefa-euro-2020?tab=outrights
 <p class="outright-item__runner-name">Spain</p>
 <span class="btn-odds__label">15/2</span>
-</code>
-
-<code>
+----
 https://www.betfair.com/exchange/plus/en/football/uefa-euro-2020-betting-28814228
 <h3 class="runner-name" data-ng-bind="::runnerName">Spain</h3>
 Example ("Lay all" column):
 <button class="lay mv-bet-button lay-button lay-selection-button" data-bet-type="lay" data-ng-class="::{'is-sp': isSp}" type="lay" depth="0" price="9.4" size="£86" to-fraction="ctrl.vm.events.getBetButtonFractionalOdd(lay)" highlight="false" ng-click="ctrl.vm.events.addBet(ctrl.vm.data.betsConfiguration.types.lay, lay.price, runner)" ng-disabled="ctrl.vm.data.market.isSuspended" is-selected="false" title="17/2"><!----><!----><div class="mv-bet-button-info" data-ng-if="::!isSp"><span class="bet-button-price">9.4</span> <span class="bet-button-size">£86</span></div><!----></button>
-</code>
+```
 
 ### find_class_by_sample
 Specify some team names and current scores to find the appropriate class names.
