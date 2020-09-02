@@ -57,9 +57,6 @@ Example ("Lay all" column):
 </button>
 ```
 
-### find_class_by_sample
-Specify some team names and current scores to find the appropriate class names.
-
 ## Further considerations
 * more thorough testing (more websites) may show that certain country names appear in different forms on different websites (e.g. "United Kingdom", "UK", "Great Britain"), and as an extra feature, the code should be enhanced to handle these.
 
