@@ -9,13 +9,17 @@ from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException
 import logging
 import time
 import pandas as pd
+import argparse
+import sys
 
+logging.basicConfig(filename="%s.log" % sys.argv[0], level=logging.DEBUG)
 log = logging.getLogger('root')
 
-# TODO: create a setup script that ensures the selenium driver is installed and is on the PATH
+# TODO: create a setup script or Docker image that ensures the selenium driver is installed and is on the PATH
 
 # ------------------- BASE CLASSES ----------------------
 
@@ -27,6 +31,7 @@ class DynamicContentBase:
         self.base_url = base_url
         self.max_timeout = max_timeout
         self.wdwait = WebDriverWait(self.driver, self.max_timeout)
+        self.cookies_accepted = False
 
     def get_clickable_element(self, filter):
         "Waits for the element to become clickable before returning it. This is to avoid race conditions."
@@ -49,6 +54,16 @@ class DynamicContentBase:
         e = self.get_clickable_element(filter)
         e.send_keys(input_text)
         return e
+
+    def accept_all_cookies(self):
+        """Clicks on the 'accept cookies' button/link
+           It does that once only, and also handles timeout, assuming that cookies have been already accepted previously."""
+        if not self.cookies_accepted:
+            try:
+                self.click((By.ID, "onetrust-accept-btn-handler"), hint="Accept cookies")
+            except TimeoutException:
+                log.debug("Timeout for Accept cookies button: most likely already accepted")
+            self.cookies_accepted = True
 
     def get_content(self):
         "Returns the raw data after transformations"
@@ -80,6 +95,7 @@ class PaddyPowerDynamicData(DynamicContentBase):
 
     def prepare_page_content(self):
         # This is a replay of a manual test case recorded with Firefox plugin 'Katalon Recorder' (~ like Selenium Builder)
+        self.accept_all_cookies()
         self.click( (By.XPATH, "//a[2]/span"), hint='Clicking "search"')
         self.click( (By.XPATH, "//abc-search-bar/div/input"), hint='Clicking search input box')
         self.send_keys( (By.XPATH, "//abc-search-bar/div/input"), "uefa euro 2020")
@@ -110,8 +126,7 @@ class BetFairDynamicData(DynamicContentBase):
         super().__init__(driver=driver, base_url="https://www.betfair.com", max_timeout=max_timeout)
 
     def prepare_page_content(self):
-        #TODO: add condition to "Accept cookies" only the first time this runs
-        self.click( (By.ID, "onetrust-accept-btn-handler"), hint="Accept cookies" )
+        self.accept_all_cookies()
         self.click( (By.ID, "EXCHANGE"), hint="Exchange menu" )
         self.click( (By.LINK_TEXT, "Football"), hint="Football link on left side" )
         self.click( (By.LINK_TEXT, "International"), hint="International link on left side" )
@@ -123,6 +138,9 @@ class BetFairDynamicData(DynamicContentBase):
              """
         self.driver.execute_script(js)
         # Does it take time to process all those mouseover events? Will it make any difference if we sleep 30 sec?
+        # Answer: sometimes this works, sometimes it doesn't
+        # Note: I would never do this in a production environment, I am out of ideas now how to ensure these button elements' title attributes get populated.
+        # With the lack of information on clearly defined APIs/data sources this exercise was just for the benefit of learning something new.
         time.sleep(30)
 
 class BetFairOdds(OddsBaseData):
@@ -137,21 +155,37 @@ class BetFairOdds(OddsBaseData):
 # ------------------ MAIN SCRIPT ----------------------
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="This tool retrieves odds/probability of teams from webpages.")
+    parser.add_argument('-o', help='output to file')
+    parser.add_argument('-t', help='retrieval period [minutes]', default=5, type=int)
+    arg = parser.parse_args()
+    if arg.o:
+        out = open(arg.o, 'w')
+    else: out = sys.stdout
+
     chrome_options = Options()
-    # Note: making the browser headless doesn't really make much difference in performance
-    #chrome_options.add_argument('--headless')
+    # Note: making the browser headless doesn't really make much difference in performance, and with the GUI it's more spectacular :)
+    # I also didn't bother trying different (perhaps lower memory-footprint) selenium drivers, as I believe the whole exercise
+    # is not something someone would ever want to produce in a scalable size.
+    # chrome_options.add_argument('--headless')
+
     with webdriver.Chrome(options=chrome_options) as driver:
-        betfair =  BetFairOdds(BetFairDynamicData(driver).get_content())
-        #with open("data/betfair.com.html", "w") as f:
-        #   f.write(driver.page_source)
-        print(dict(zip(betfair.teams, betfair.odds)))
+        last_time = time.time()
+        betfair_dynamic_data = BetFairDynamicData(driver)
+        paddy_dynamic_data = PaddyPowerDynamicData(driver)
+        while True:
+            betfair =  BetFairOdds(betfair_dynamic_data.get_content())
+            #with open("data/betfair.com.html", "w") as f:
+            #   f.write(driver.page_source)
+            #print(dict(zip(betfair.teams, betfair.odds)))
 
-        paddy =  PaddyPowerOdds(PaddyPowerDynamicData(driver).get_content())
-        print(dict(zip(paddy.teams, paddy.odds)))
+            paddy =  PaddyPowerOdds(paddy_dynamic_data.get_content())
+            #print(dict(zip(paddy.teams, paddy.odds)))
 
-        d = {"Betfair": pd.Series(betfair.odds, index=betfair.teams, dtype=str),
-             "Paddy": pd.Series(paddy.odds, index=paddy.teams)}
-
-        df = pd.DataFrame(d)
-
-        print(df)
+            d = {"Betfair": pd.Series(betfair.odds, index=betfair.teams, dtype=str),
+                 "Paddy": pd.Series(paddy.odds, index=paddy.teams)}
+            df = pd.DataFrame(d)
+            out.writelines(str(df))
+            sleep_time = max(int(last_time+arg.t*60-time.time()), 0)
+            log.debug("Sleeping %ds ..." % sleep_time)
+            time.sleep(sleep_time)
