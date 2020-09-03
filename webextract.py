@@ -140,16 +140,18 @@ class BetFairDynamicData(DynamicContentBase):
         self.click( (By.LINK_TEXT, "International"), hint="International link on left side" )
         self.click( (By.LINK_TEXT, "UEFA Euro 2020"), hint="'UEFA Euro 2020' link on left side" )
         self.click( (By.LINK_TEXT, "Winner"), hint="Winner link on left side" )
+        self.click((By.ID, "ssc-rmb"), hint="click 'Remember me' checkbox, just for debuggoing purposes")
 
-        js = """var buttons = document.querySelectorAll("button");
-                for (i=0; i<buttons.length; i++) {buttons[i].dispatchEvent(new Event('mouseover'));}
-             """
-        self.driver.execute_script(js)
-        # Does it take time to process all those mouseover events? Will it make any difference if we sleep 30 sec?
-        # Answer: sometimes this works, sometimes it doesn't
+        for i in range(3):
+            js = """var buttons = document.querySelectorAll("button");
+                    for (i=0; i<buttons.length; i++) { if (buttons[i].classList[0] == "back") { buttons[i].dispatchEvent(new Event('mouseover'));}}
+                 """
+            self.driver.execute_script(js)
+            time.sleep(3)
+        # Sometimes this works, sometimes it doesn't, what button's title property gets populated is a bit indeterministic.
         # Note: I would never do this in a production environment, I am out of ideas now how to ensure these button elements' title attributes get populated.
         # With the lack of information on clearly defined APIs/data sources this exercise was just for the benefit of learning something new.
-        time.sleep(30)
+        self.click((By.ID, "ssc-rmb"), hint="click 'Remember me' checkbox, just for debuggoing purposes")
 
 class BetFairOdds(OddsBaseData):
     def __init__(self):
@@ -158,7 +160,7 @@ class BetFairOdds(OddsBaseData):
     def transform(self, content):
         tree = html.fromstring(content)
         self.teams = [e.text for e in tree.xpath('//h3[@class="runner-name"]') ]
-        self.odds = [e.get('title', '') for e in tree.xpath('//button[@class="lay mv-bet-button lay-button lay-selection-button"]')]
+        self.odds = [e.get('title', '') for e in tree.xpath('//button[@class="back mv-bet-button back-button back-selection-button"]')]
 
 # ------------------ MAIN SCRIPT ----------------------
 
@@ -168,8 +170,8 @@ if __name__ == '__main__':
     parser.add_argument('-t', help='retrieval period [minutes]', default=5, type=int)
     arg = parser.parse_args()
     if arg.o:
-        out = open(arg.o, 'w')
-    else: out = sys.stdout
+        outf = open(arg.o, 'w')
+    else: outf = sys.stdout
 
     chrome_options = Options()
     # Note: making the browser headless doesn't really make much difference in performance, and with the GUI it's more spectacular :)
@@ -181,6 +183,7 @@ if __name__ == '__main__':
     pages = []
 
     with contextlib.ExitStack() as estack:
+        estack.enter_context(outf)
         pages.append(Page('BetFair', BetFairDynamicData(estack.enter_context(webdriver.Chrome(options=chrome_options))), BetFairOdds()))
         pages.append(Page('Paddy', PaddyPowerDynamicData(estack.enter_context(webdriver.Chrome(options=chrome_options))), PaddyPowerOdds()))
         while True:
@@ -188,11 +191,15 @@ if __name__ == '__main__':
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 futures = [ (p, executor.submit(p.manipulator.get_content)) for p in pages ]
                 for (p, future) in futures:
-                    p.extractor.extract(future.result())
+                    result = future.result()
+                    #with open("data/%s.%s.html" % (p.name, time.time()), 'w') as f:
+                    #    f.write(result)
+                    p.extractor.extract(result)
 
             d = dict([ (p.name, pd.Series(p.extractor.odds, index=p.extractor.teams, dtype=str)) for p in pages])
             df = pd.DataFrame(d)
-            out.writelines("%s\n" % str(df))
+            outf.writelines("%s\n" % str(df))
+            outf.flush()
             sleep_time = max(int(last_time+arg.t*60-time.time()), 0)
             log.debug("Sleeping %ds ..." % sleep_time)
             time.sleep(sleep_time)
