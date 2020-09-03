@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 """
 This script extracts odds/probability information per team from specific webpages
 """
@@ -15,6 +16,9 @@ import time
 import pandas as pd
 import argparse
 import sys
+import contextlib
+import concurrent.futures
+from collections import namedtuple
 
 logging.basicConfig(filename="%s.log" % sys.argv[0], level=logging.DEBUG)
 log = logging.getLogger('root')
@@ -77,20 +81,24 @@ class DynamicContentBase:
         raise NotImplemented
 
 class OddsBaseData:
-    def __init__(self, content):
+    ALIASES = {'Rep Of Ireland': 'Republic of Ireland',
+               'Bosnia': 'Bosnia-Herzegovina'}
+    def __init__(self):
         self.teams = []
         self.odds = []
-        self.content = content
-        self.extract()
 
-    def extract(self):
+    def extract(self, content):
+        self.transform(content)
+        self.teams = list(map(lambda t: self.ALIASES.get(t,t), self.teams))
+
+    def transform(self, content):
         "This method extracts the team names and the O/P values"
         raise NotImplemented
 
 # ------------------- WEBPAGE-SPECIFIC CLASSES ----------------------
 
 class PaddyPowerDynamicData(DynamicContentBase):
-    def __init__(self, driver, max_timeout=30):
+    def __init__(self, driver, max_timeout=60):
         super().__init__(driver=driver, base_url="https://www.paddypower.com", max_timeout=max_timeout)
 
     def prepare_page_content(self):
@@ -108,11 +116,11 @@ class PaddyPowerDynamicData(DynamicContentBase):
         self.driver.execute_script(js)
 
 class PaddyPowerOdds(OddsBaseData):
-    def __init__(self, content):
-        super().__init__(content)
+    def __init__(self):
+        super().__init__()
 
-    def extract(self):
-        tree = html.fromstring(self.content)
+    def transform(self, content):
+        tree = html.fromstring(content)
         # Explanation to the XPATH expression:
         # Find elements only under the second 'outright-coupon-card-items' element:
         # Team names are like: <p class="outright-item__runner-name">Spain</p>
@@ -122,7 +130,7 @@ class PaddyPowerOdds(OddsBaseData):
         self.odds = [e.text for e in tree.xpath('//outright-coupon-card-items/div[2]//span[@class="btn-odds__label"]')]
 
 class BetFairDynamicData(DynamicContentBase):
-    def __init__(self, driver, max_timeout=30):
+    def __init__(self, driver, max_timeout=60):
         super().__init__(driver=driver, base_url="https://www.betfair.com", max_timeout=max_timeout)
 
     def prepare_page_content(self):
@@ -144,11 +152,11 @@ class BetFairDynamicData(DynamicContentBase):
         time.sleep(30)
 
 class BetFairOdds(OddsBaseData):
-    def __init__(self, content):
-        super().__init__(content)
+    def __init__(self):
+        super().__init__()
 
-    def extract(self):
-        tree = html.fromstring(self.content)
+    def transform(self, content):
+        tree = html.fromstring(content)
         self.teams = [e.text for e in tree.xpath('//h3[@class="runner-name"]') ]
         self.odds = [e.get('title', '') for e in tree.xpath('//button[@class="lay mv-bet-button lay-button lay-selection-button"]')]
 
@@ -169,23 +177,22 @@ if __name__ == '__main__':
     # is not something someone would ever want to produce in a scalable size.
     # chrome_options.add_argument('--headless')
 
-    with webdriver.Chrome(options=chrome_options) as driver:
-        last_time = time.time()
-        betfair_dynamic_data = BetFairDynamicData(driver)
-        paddy_dynamic_data = PaddyPowerDynamicData(driver)
+    Page = namedtuple('Page', ['name', 'manipulator', 'extractor'])
+    pages = []
+
+    with contextlib.ExitStack() as estack:
+        pages.append(Page('BetFair', BetFairDynamicData(estack.enter_context(webdriver.Chrome(options=chrome_options))), BetFairOdds()))
+        pages.append(Page('Paddy', PaddyPowerDynamicData(estack.enter_context(webdriver.Chrome(options=chrome_options))), PaddyPowerOdds()))
         while True:
-            betfair =  BetFairOdds(betfair_dynamic_data.get_content())
-            #with open("data/betfair.com.html", "w") as f:
-            #   f.write(driver.page_source)
-            #print(dict(zip(betfair.teams, betfair.odds)))
+            last_time = time.time()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [ (p, executor.submit(p.manipulator.get_content)) for p in pages ]
+                for (p, future) in futures:
+                    p.extractor.extract(future.result())
 
-            paddy =  PaddyPowerOdds(paddy_dynamic_data.get_content())
-            #print(dict(zip(paddy.teams, paddy.odds)))
-
-            d = {"Betfair": pd.Series(betfair.odds, index=betfair.teams, dtype=str),
-                 "Paddy": pd.Series(paddy.odds, index=paddy.teams)}
+            d = dict([ (p.name, pd.Series(p.extractor.odds, index=p.extractor.teams, dtype=str)) for p in pages])
             df = pd.DataFrame(d)
-            out.writelines(str(df))
+            out.writelines("%s\n" % str(df))
             sleep_time = max(int(last_time+arg.t*60-time.time()), 0)
             log.debug("Sleeping %ds ..." % sleep_time)
             time.sleep(sleep_time)
